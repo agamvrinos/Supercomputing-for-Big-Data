@@ -1,4 +1,4 @@
-name := "SparkProject"
+name := "RDDSparkProject"
 
 version := "0.1"
 
