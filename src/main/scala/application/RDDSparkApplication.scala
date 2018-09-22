@@ -25,9 +25,7 @@ object RDDSparkApplication {
     "Read Full",
     "Read Full Blog"
   )
-
   var CONFIG_FILE_PATH: String = "/local_index.txt"
-
   var CUSTOM_DATE_FORMAT = "yyyy-MM-dd"
   var RAW_DATE_FORMAT = "yyyyMMddHHmmss"
 
