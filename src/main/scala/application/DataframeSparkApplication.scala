@@ -83,24 +83,31 @@ object DataframeSparkApplication {
     val dateAllNamesRecords: Dataset[(String, String)] = validData.map(x => (dateFormat.format(x.date), x.allNames))
 
     // split the merged topics
-    val dateSingleTopicRecords = dateAllNamesRecords.flatMap {case (x1, x2) => x2.split(";").map((x1, _))}
+    val dateMultiTopicRecords = dateAllNamesRecords.flatMap {case (x1, x2) => x2.split(";").map((x1, _))}
 
     // rename columns for clarity
-    var dateSingleTopicRecordsRenamed = dateSingleTopicRecords.withColumnRenamed("_1", "date")
-    dateSingleTopicRecordsRenamed = dateSingleTopicRecordsRenamed.withColumnRenamed("_2", "allNamesMerged")
+    var dateMultiTopicRecordsRenamed = dateMultiTopicRecords.withColumnRenamed("_1", "date")
+    dateMultiTopicRecordsRenamed = dateMultiTopicRecordsRenamed.withColumnRenamed("_2", "topicCount")
 
-    val wagner = dateSingleTopicRecordsRenamed
-      .withColumn("word", split($"allNamesMerged", ",").getItem(0))
+    // create (topic, 1) pairs
+    val dateSingleTopicRecords = dateMultiTopicRecordsRenamed
+      .withColumn("word", split($"topicCount", ",").getItem(0))
       .withColumn("count", lit(1))
 
-    val neti= wagner.drop("allNamesMerged")
+    // drop redundant column
+    val dateSingleTopicRecordsSplit= dateSingleTopicRecords.drop("topicCount")
 
-    var filteredTopics = neti.filter(!col("word").isin(IGNORED_TOPICS :_*))
+    // filter the ignored topics
+    var filteredTopics = dateSingleTopicRecordsSplit.filter(!col("word").isin(IGNORED_TOPICS :_*))
 
-    val aggregated = filteredTopics.groupBy("date", "word").agg(sum($"count") as "Total").toDF()
+    // group results by date and topic in order to summarize the counts
+    val aggregated = filteredTopics.groupBy("date", "word").agg(sum($"count") as "Total")
 
+    // order results by count
     val sorted = aggregated.orderBy(desc("Total"))
 
     sorted.show(10)
+
+    session.stop()
   }
 }
