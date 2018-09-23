@@ -4,9 +4,9 @@ import java.io.InputStream
 import java.text.SimpleDateFormat
 
 import DTO.GDeltData
+import org.apache.spark.sql._
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{Dataset, RelationalGroupedDataset, SparkSession}
 
 import scala.io.Source
 
@@ -23,6 +23,15 @@ object DataframeSparkApplication {
   )
   var CONFIG_FILE_PATH: String = "/local_index.txt"
   var CUSTOM_DATE_FORMAT = "yyyy-MM-dd"
+
+  /**
+    * Helper function to limit the size of the array column
+    * @param n the limit size
+    * @param arrCol the array column
+    * @return the array column of size n
+    */
+  def limit(n: Int, arrCol: Column): Column =
+    array( (0 until n).map( arrCol.getItem ): _* )
 
   def main(args: Array[String]): Unit = {
     val dateFormat = new SimpleDateFormat(CUSTOM_DATE_FORMAT)
@@ -71,7 +80,7 @@ object DataframeSparkApplication {
     import session.implicits._
     val df = session.read
       .schema(schema)
-      .option("sep", "\t")
+      .option("sep", TAB_SPLIT)
       .option("timestampFormat", "yyyyMMddS")
       .csv(lines:_*)
       .as[GDeltData]
@@ -83,7 +92,7 @@ object DataframeSparkApplication {
     val dateAllNamesRecords: Dataset[(String, String)] = validData.map(x => (dateFormat.format(x.date), x.allNames))
 
     // split the merged topics
-    val dateMultiTopicRecords = dateAllNamesRecords.flatMap {case (x1, x2) => x2.split(";").map((x1, _))}
+    val dateMultiTopicRecords = dateAllNamesRecords.flatMap {case (x1, x2) => x2.split(SEMICOLON_SPLIT).map((x1, _))}
 
     // rename columns for clarity
     var dateMultiTopicRecordsRenamed = dateMultiTopicRecords.withColumnRenamed("_1", "date")
@@ -91,7 +100,7 @@ object DataframeSparkApplication {
 
     // create (topic, 1) pairs
     val dateSingleTopicRecords = dateMultiTopicRecordsRenamed
-      .withColumn("word", split($"topicCount", ",").getItem(0))
+      .withColumn("word", split($"topicCount", COMMA_SPLIT).getItem(0))
       .withColumn("count", lit(1))
 
     // drop redundant column
@@ -103,10 +112,21 @@ object DataframeSparkApplication {
     // group results by date and topic in order to summarize the counts
     val aggregated = filteredTopics.groupBy("date", "word").agg(sum($"count") as "Total")
 
-    // order results by count
-    val sorted = aggregated.orderBy(desc("Total"))
+    // merge word and total columns
+    val mergedWordTotalColumns = aggregated
+      .select("date", "word", "Total")
+      .orderBy(desc("Total"))
+      .withColumn("merged", struct("word", "Total"))
+      .drop("word", "Total")
 
-    sorted.show(10)
+    // group results by date
+    val groupedByDate = mergedWordTotalColumns
+      .groupBy("date")
+      .agg(collect_list(col("merged")).as("results"))
+      .select( $"date", limit(10, $"results").as("final2") )
+      .drop("results")
+
+    groupedByDate.show(false)
 
     session.stop()
   }
