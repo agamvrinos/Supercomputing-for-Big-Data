@@ -1,13 +1,12 @@
 package application
 
-import java.io._
+import java.io.InputStream
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-import net.liftweb.json.DefaultFormats
-import net.liftweb.json.Serialization.write
 import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.{Row, SaveMode, SparkSession}
+import org.apache.spark.sql.types._
 
 import scala.collection.mutable.ArrayBuffer
 import scala.io.Source
@@ -35,15 +34,15 @@ object RDDSparkApplication {
 
     val session = SparkSession
       .builder
-      .appName("RDDSparkProject")
-      .master("local")
+      .appName("RDDSparkApplication")
       .getOrCreate()
 
     val sc = session.sparkContext
 
-    val stream: InputStream = getClass.getResourceAsStream(CONFIG_FILE_PATH)
-    val lines: String = Source.fromInputStream( stream , "UTF16").getLines.mkString(COMMA_SPLIT)
-    val filePathsRDD: RDD[String] = sc.textFile(lines)
+    val filePathsRDD: RDD[String] = sc.textFile("s3://gdelt-open-data/v2/gkg/2015021*.gkg.csv")
+
+    // filter lines with length less than 23 (after tab split)
+    val filtered = filePathsRDD.filter(line => line.split(TAB_SPLIT, -1).length > 23)
 
     val dateToStringDataRDD: RDD[(String, String)] = filePathsRDD.map ( line => {
       val linePair = line.split(TAB_SPLIT, -1)
@@ -74,13 +73,15 @@ object RDDSparkApplication {
     // sort them and keep the first 10
     val sortedRDD = groupedByDateSummedRDDs.mapValues(x => x.sortBy(x => -x._2).take(10))
 
-    val jsonResults: String = serializeResultsToJSON(sortedRDD.collect())
-    saveJSONResultsToFile(jsonResults)
+    val parallelizedJsonArrayBuffer = sc.parallelize(serializeResultsToJSON(sortedRDD.collect()))
+    val sortedDataframe = session.createDataFrame(parallelizedJsonArrayBuffer)
 
-    sc.stop()
+    sortedDataframe.write.mode(SaveMode.Overwrite).json("s3a://supercomputing-bucket-output/output")
+
+    session.stop()
   }
 
-  private def serializeResultsToJSON(results: Array[(String, List[(String, Int)])]): String = {
+  private def serializeResultsToJSON(results: Array[(String, List[(String, Int)])]): ArrayBuffer[DateRecordPair] = {
     val container = new ArrayBuffer[DateRecordPair]()
 
     for (tuple <- results) {
@@ -92,15 +93,6 @@ object RDDSparkApplication {
 
       container.append(DateRecordPair(tuple._1, l))
     }
-    implicit val formats = DefaultFormats
-    val jsonString = write(container)
-    jsonString
-  }
-
-  private def saveJSONResultsToFile(jsonResults: String): Unit = {
-    val file = new File("results.json")
-    val bw = new BufferedWriter(new FileWriter(file))
-    bw.write(jsonResults)
-    bw.close()
+    container
   }
 }
