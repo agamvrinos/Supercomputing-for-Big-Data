@@ -1,15 +1,12 @@
 package application
 
-import java.io.InputStream
 import java.text.SimpleDateFormat
 import java.util.Locale
 
 import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.{Row, SaveMode, SparkSession}
-import org.apache.spark.sql.types._
+import org.apache.spark.sql.{SaveMode, SparkSession}
 
 import scala.collection.mutable.ArrayBuffer
-import scala.io.Source
 
 case class DateRecordPair(data: String, result: ArrayBuffer[Result])
 case class Result(topic: String, count: Int)
@@ -24,7 +21,6 @@ object RDDSparkApplication {
     "Read Full",
     "Read Full Blog"
   )
-  var CONFIG_FILE_PATH: String = "/local_index.txt"
   var CUSTOM_DATE_FORMAT = "yyyy-MM-dd"
   var RAW_DATE_FORMAT = "yyyyMMddHHmmss"
 
