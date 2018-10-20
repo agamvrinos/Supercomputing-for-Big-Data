@@ -5,7 +5,7 @@ import java.sql.Timestamp
 case class GDeltData (
   id: String,
   date: Timestamp,
-  sourceCollectionId: Int,
+  sourceCollectionId: Integer,
   sourceCommonNames: String,
   documentIdentifier: String,
   counts: String,

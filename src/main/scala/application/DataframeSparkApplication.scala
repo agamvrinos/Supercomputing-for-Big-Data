@@ -68,13 +68,29 @@ object DataframeSparkApplication {
       )
     )
 
-    val stream: InputStream = getClass.getResourceAsStream(CONFIG_FILE_PATH)
-    val lines: List[String] = (for (line <- Source.fromInputStream( stream , "UTF16").getLines) yield line).toList
+//    val stream: InputStream = getClass.getResourceAsStream(CONFIG_FILE_PATH)
+//    val lines: List[String] = (for (line <- Source.fromInputStream( stream , "UTF16").getLines) yield line).toList
+
+    var paths: Array[String] =  Array(
+      "s3://gdelt-open-data/v2/gkg/201502*.gkg.csv",  //956
+      "s3://gdelt-open-data/v2/gkg/201503*.gkg.csv", //2976
+      "s3://gdelt-open-data/v2/gkg/201504*.gkg.csv", //2878
+      "s3://gdelt-open-data/v2/gkg/201505*.gkg.csv", //2969
+      "s3://gdelt-open-data/v2/gkg/20150601*.gkg.csv", //96
+      "s3://gdelt-open-data/v2/gkg/20150602*.gkg.csv", //96
+      "s3://gdelt-open-data/v2/gkg/2015060300*.gkg.csv", //4
+      "s3://gdelt-open-data/v2/gkg/2015060301*.gkg.csv", //4
+      "s3://gdelt-open-data/v2/gkg/2015060302*.gkg.csv", //4
+      "s3://gdelt-open-data/v2/gkg/2015060303*.gkg.csv", //4
+      "s3://gdelt-open-data/v2/gkg/2015060304*.gkg.csv", //4
+      "s3://gdelt-open-data/v2/gkg/2015060305*.gkg.csv", //4
+      "s3://gdelt-open-data/v2/gkg/2015060306*.gkg.csv", //4
+      "s3://gdelt-open-data/v2/gkg/20150603070000.gkg.csv" //1
+    )
 
     val session = SparkSession
       .builder
       .appName("SparkProject")
-      .master("local")
       .getOrCreate()
 
     import session.implicits._
@@ -82,11 +98,11 @@ object DataframeSparkApplication {
       .schema(schema)
       .option("sep", TAB_SPLIT)
       .option("timestampFormat", "yyyyMMddS")
-      .csv(lines:_*)
+      .csv(paths:_*)
       .as[GDeltData]
 
     // filter out the records with null values at the allNames column
-    val validData = df.filter("allNames is not null")
+    val validData = df.filter(row => row.allNames != null)
 
     // keep the columns we are interested in and format the date
     val dateAllNamesRecords: Dataset[(String, String)] = validData.map(x => (dateFormat.format(x.date), x.allNames))
@@ -112,18 +128,13 @@ object DataframeSparkApplication {
     // group results by date and topic in order to summarize the counts
     val aggregated = filteredTopics.groupBy("date", "word").agg(sum($"count") as "Total")
 
-    // merge word and total columns
-    val mergedWordTotalColumns = aggregated
-      .select("date", "word", "Total")
-      .orderBy(desc("Total"))
-      .withColumn("merged", struct("word", "Total"))
-      .drop("word", "Total")
-
     // group results by date
-    val groupedByDate = mergedWordTotalColumns
+    val groupedByDate = aggregated
+      .orderBy(desc("Total"))
       .groupBy("date")
-      .agg(collect_list(col("merged")).as("results"))
-      .select( $"date", limit(10, $"results").as("final2") )
+      .agg(collect_list(struct("word", "Total"))
+        .as("results"))
+      .select( $"date", limit(10, $"results").as("Topics") )
       .drop("results")
 
     groupedByDate.show(false)
