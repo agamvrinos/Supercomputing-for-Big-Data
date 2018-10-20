@@ -35,12 +35,12 @@ object RDDSparkApplication {
 
     val sc = session.sparkContext
 
-    val filePathsRDD: RDD[String] = sc.textFile("s3://gdelt-open-data/v2/gkg/2015021*.gkg.csv")
+    val filePathsRDD: RDD[String] = sc.textFile("s3://gdelt-open-data/v2/gkg/*.gkg.csv")
 
     // filter lines with length less than 23 (after tab split)
     val filtered = filePathsRDD.filter(line => line.split(TAB_SPLIT, -1).length > 23)
 
-    val dateToStringDataRDD: RDD[(String, String)] = filePathsRDD.map ( line => {
+    val dateToStringDataRDD: RDD[(String, String)] = filtered.map ( line => {
       val linePair = line.split(TAB_SPLIT, -1)
       val rawDate = linePair(1)
       val rawNames = linePair(23)
@@ -69,10 +69,10 @@ object RDDSparkApplication {
     // sort them and keep the first 10
     val sortedRDD = groupedByDateSummedRDDs.mapValues(x => x.sortBy(x => -x._2).take(10))
 
-    val parallelizedJsonArrayBuffer = sc.parallelize(serializeResultsToJSON(sortedRDD.collect()))
-    val sortedDataframe = session.createDataFrame(parallelizedJsonArrayBuffer)
+    // val parallelizedJsonArrayBuffer = sc.parallelize(serializeResultsToJSON(sortedRDD.collect())) // In case we want to output this with a specific JSON schema
+    val sortedDataframe = session.createDataFrame(sortedRDD.collect())
 
-    sortedDataframe.write.mode(SaveMode.Overwrite).json("s3a://supercomputing-bucket-output/output")
+    sortedDataframe.write.mode(SaveMode.Overwrite).json("s3a://ohio-sbd-bucket/output")
 
     session.stop()
   }
