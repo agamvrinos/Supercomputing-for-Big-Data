@@ -59,15 +59,14 @@ object RDDSparkApplication {
     // filter out the false positives
     val filteredTopicsRdd = valuesSplittedRdd.filter(pair => !IGNORED_TOPICS.contains(pair._2._1))
 
-    // group the (date, (topic, 1) by date
-    val groupedByDateRDDs =  filteredTopicsRdd.groupByKey()
-
-    // calculate the sum for each date and for each topic
-    val groupedByDateSummedRDDs = groupedByDateRDDs.mapValues(x =>
-      x.groupBy(_._1).mapValues(x => x.map(_._2).sum).toList)
+    // group by date and sum
+    val groupedByDateRDDs = filteredTopicsRdd.map{ case (date, (topic, value)) => (date, Map(topic -> value)) }.
+      reduceByKey{ (acc, m) =>
+        acc ++ m.map{ case (n, v) => n -> (acc.getOrElse(n, 0) + v) }
+      }
 
     // sort them and keep the first 10
-    val sortedRDD = groupedByDateSummedRDDs.mapValues(x => x.sortBy(x => -x._2).take(10))
+    val sortedRDD = groupedByDateRDDs.mapValues(x => x.toList.sortBy(x => -x._2).take(10))
 
     // val parallelizedJsonArrayBuffer = sc.parallelize(serializeResultsToJSON(sortedRDD.collect())) // In case we want to output this with a specific JSON schema
     val sortedDataframe = session.createDataFrame(sortedRDD.collect())
