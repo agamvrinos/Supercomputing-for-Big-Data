@@ -1,6 +1,5 @@
 package lab3
 
-import java.text.SimpleDateFormat
 import java.util.Properties
 import java.util.concurrent.TimeUnit
 
@@ -86,12 +85,12 @@ object GDELTStream extends App {
 }
 
 class HistogramTransformer extends Transformer[String, String, (String, Long)] {
-
   val MILLIS_PER_HOUR = 60 * 60 * 1000L
 
   // State Store names
   val STORE_NAME = "histogram"
   val RECORDED_TIMESTAMPS_STORE_NAME = "recorded"
+
   // Delimiter for the pseudo-key generation
   val CUSTOM_DELIMITER = ";"
 
@@ -105,21 +104,16 @@ class HistogramTransformer extends Transformer[String, String, (String, Long)] {
     this.topicCountsStore = context.getStateStore(STORE_NAME).asInstanceOf[KeyValueStore[String, Long]]
     this.recordsTimestampStore = context.getStateStore(RECORDED_TIMESTAMPS_STORE_NAME).asInstanceOf[KeyValueStore[String, Long]]
 
-    //TODO: Change to 1 hour
-    context.schedule(TimeUnit.SECONDS.toMillis(10), PunctuationType.WALL_CLOCK_TIME, outdatedRecordsCheck(_))
+    // Schedule the check for outdated records to run every hour
+    context.schedule(TimeUnit.HOURS.toMillis(1), PunctuationType.WALL_CLOCK_TIME, outdatedRecordsCheck(_))
   }
 
   // Should return the current count of the name during the _last_ hour
   def transform(key: String, name: String): (String, Long) = {
     val recordTimestamp: Long = context.timestamp()
 
-    println("=========================================================================================")
-    println("Processing key: " + key + ", name: " + name)
-
     // Insert/Update the count for a specific topic
     val recordCount = this.topicCountsStore.get(name)
-    println("Count = " + recordCount)
-    println("=========================================================================================")
     if (recordCount == 0) {
       this.topicCountsStore.put(name, 1)
     } else {
@@ -161,49 +155,37 @@ class HistogramTransformer extends Transformer[String, String, (String, Long)] {
     * @param timestamp the timestamp when the method was called
     */
   def outdatedRecordsCheck(timestamp: Long): Unit = {
-    println("****************** INITIATING  ******************")
-    val df:SimpleDateFormat = new SimpleDateFormat("HH:mm:ss")
-    val date:String = df.format(timestamp)
-    println("Running at \"" + date + "\"")
-
     val currentTimestamp = System.currentTimeMillis()
 
     val recordsTimestampStoreEntries = recordsTimestampStore.all()
 
+    // Iterate over "recordsTimestampStore" StateStore and check for outdated records
     while (recordsTimestampStoreEntries.hasNext) {
       val next = recordsTimestampStoreEntries.next
+
       val topicTimestampMergedKey: String = next.key
       val splitArray = topicTimestampMergedKey.split(CUSTOM_DELIMITER)
 
       val recordsTimestamp: Long = splitArray(1).toLong
 
-      println("Current Timestamp: " + df.format(currentTimestamp))
-      println("Record Timestamp: " + df.format(recordsTimestamp))
-
-      println(currentTimestamp - recordsTimestamp)
+      // Outdated condition
       if (currentTimestamp - recordsTimestamp > MILLIS_PER_HOUR  ) {
-
         val outdatedRecordCount = next.value
         val topicName = splitArray(0)
 
-        println("Found outdated topic: \"" + topicName + "\"")
-
         val oldCount = topicCountsStore.get(topicName)
         val newCount = oldCount - outdatedRecordCount
-        println("Old count = " + oldCount)
-        println("New count = " + newCount)
-        topicCountsStore.put(topicName, newCount)
 
-        context.forward(topicName, newCount, To.all())
+        topicCountsStore.put(topicName, newCount) // Update the the count for the outdated topic
+
+        context.forward(topicName, newCount, To.all())  // Publish the update
         context.commit()
 
         recordsTimestampStore.delete(topicTimestampMergedKey)
       }
     }
-    println("****************** ENDING  ******************")
   }
 
-  // Close any resources if any
   def close() {
   }
 }
